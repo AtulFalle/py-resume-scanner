@@ -1,10 +1,10 @@
-
 import asyncio
 import logging
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 
+from resume_ai.ai.runtime import llm_runtime
 from resume_ai.ai.tasks.resume_embedding import resume_embedding_task
 from resume_ai.core.database import SessionFactory, close_database
 from resume_ai.message_queue.consumer import RabbitMQConsumer
@@ -46,9 +46,7 @@ async def process_embedding(payload: dict) -> None:
 
     try:
         # Generate vectors for all resume chunks.
-        chunks, vectors = await resume_embedding_task.execute(
-            document_text
-        )
+        chunks, vectors = await resume_embedding_task.execute(document_text)
 
         # Store all vectors in Qdrant.
         await qdrant_storage.upsert_chunks(
@@ -101,6 +99,7 @@ async def main() -> None:
     consumer = RabbitMQConsumer(QUEUE_NAME)
 
     try:
+        await llm_runtime.start()
         await qdrant_storage.ensure_collection()
         await consumer.start(process_embedding)
     finally:

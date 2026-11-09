@@ -1,17 +1,18 @@
 import json
 
 import aio_pika
-from aio_pika import DeliveryMode, Message
+from aio_pika import DeliveryMode, ExchangeType, Message
 
 from resume_ai.core.config import settings
-from aio_pika import ExchangeType
+import logging
 
 
+logger = logging.getLogger(__name__)
 DEAD_LETTER_EXCHANGE = "resume.dlx"
+
 
 class RabbitMQPublisher:
     QUEUE_NAME = "resume.processing"
-
 
     def __init__(self) -> None:
         self.connection = None
@@ -45,6 +46,11 @@ class RabbitMQPublisher:
                 "x-dead-letter-routing-key": self.QUEUE_NAME,
             },
         )
+        logger.info(
+            "RabbitMQ publisher connected: connection_closed=%s channel_closed=%s",
+            self.connection.is_closed,
+            self.channel.is_closed,
+        )
 
     async def publish_resume(
         self,
@@ -72,6 +78,7 @@ class RabbitMQPublisher:
         )
 
     async def close(self) -> None:
+        logger.warning("Closing RabbitMQ publisher")
         if self.connection and not self.connection.is_closed:
             await self.connection.close()
 
@@ -81,20 +88,12 @@ class RabbitMQPublisher:
         payload: dict,
     ) -> None:
         if self.channel is None:
+            logger.error("Publisher channel is None while publishing to %s,", queue_name)
             raise RuntimeError("RabbitMQ publisher is not connected")
 
-        await self.declare_queue(queue_name)
-
-        message = Message(
-            body=json.dumps(payload).encode(),
-            content_type="application/json",
-            delivery_mode=DeliveryMode.PERSISTENT,
-        )
-
-        await self.channel.default_exchange.publish(
-            message,
-            routing_key=queue_name,
-        )
+        if self.channel.is_closed:
+            logger.error("Publisher channel is closed while publishing to %s", queue_name)
+            raise RuntimeError("RabbitMQ publisher channel is closed")
 
     async def declare_queue(self, queue_name: str):
         if self.channel is None:

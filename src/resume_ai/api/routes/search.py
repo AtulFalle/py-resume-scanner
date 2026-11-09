@@ -1,9 +1,7 @@
-
-from typing import List
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from resume_ai.core.database import get_db
 from resume_ai.repository.candidate_repository import candidate_repository
 from resume_ai.schemas.resume_schema import ResumeResponse
 from resume_ai.schemas.search import (
@@ -13,21 +11,19 @@ from resume_ai.schemas.search import (
     MatchedChunkResponse,
     SkillAssessmentResponse,
 )
-from resume_ai.core.database import get_db
 from resume_ai.services.candidate_reranking import candidate_reranking
 from resume_ai.services.candidate_search import candidate_search
 
-
 router = APIRouter(prefix="/search", tags=["Search"])
 
-@router.get("", response_model=List[ResumeResponse])
-async def get_candidate(
-    db: AsyncSession = Depends(get_db)
-) -> List[ResumeResponse]:
+
+@router.get("", response_model=list[ResumeResponse])
+async def get_candidate(db: AsyncSession = Depends(get_db)) -> list[ResumeResponse]:
     result = await candidate_repository.get_all(
-                db=db,
-            )
+        db=db,
+    )
     return result
+
 
 @router.post("", response_model=CandidateSearchResponse)
 async def search_candidates(

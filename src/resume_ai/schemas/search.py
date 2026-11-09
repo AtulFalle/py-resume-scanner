@@ -1,5 +1,5 @@
-
 from pydantic import BaseModel, Field
+
 
 class RetrievedChunk(BaseModel):
     resume_id: str
@@ -42,7 +42,6 @@ class CandidateSearchResult(BaseModel):
 class CandidateSearchResponse(BaseModel):
     total: int
     candidates: list[CandidateSearchResult]
-
 
 
 class SkillAssessmentResponse(BaseModel):

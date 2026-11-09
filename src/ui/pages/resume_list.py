@@ -1,4 +1,3 @@
-
 import streamlit as st
 
 from ui.services.api_client import resume_api
@@ -78,13 +77,13 @@ filtered_resumes = resumes
 
 if selected_status != "All":
     filtered_resumes = [
-        resume for resume in filtered_resumes
-        if resume.get("status") == selected_status
+        resume for resume in filtered_resumes if resume.get("status") == selected_status
     ]
 
 if search_term:
     filtered_resumes = [
-        resume for resume in filtered_resumes
+        resume
+        for resume in filtered_resumes
         if search_term.lower() in resume.get("filename", "").lower()
     ]
 

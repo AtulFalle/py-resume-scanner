@@ -1,12 +1,11 @@
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from resume_ai.schemas.candidate_evaluation import CandidateEvaluation
 from resume_ai.ai.tasks.candidate_reranking import (
     candidate_reranking_task,
 )
 from resume_ai.models.resume import Resume
 from resume_ai.repository.candidate_repository import candidate_repository
+from resume_ai.schemas.candidate_evaluation import CandidateEvaluation
 from resume_ai.schemas.search import CandidateMatch
 
 
@@ -31,12 +30,9 @@ class CandidateReranking:
         job_description: str,
         matches: list[CandidateMatch],
     ) -> list[RankedCandidate]:
-        shortlist = matches[:self.SHORTLIST_SIZE]
+        shortlist = matches[: self.SHORTLIST_SIZE]
 
-        resume_ids = [
-            match.resume_id
-            for match in shortlist
-        ]
+        resume_ids = [match.resume_id for match in shortlist]
 
         resumes = await candidate_repository.get_by_ids(
             db=db,

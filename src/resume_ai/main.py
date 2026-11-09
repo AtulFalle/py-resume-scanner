@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from resume_ai.ai.runtime import llm_runtime
 from resume_ai.api.routes.ai import router as ai_router
 from resume_ai.api.routes.health import router as health_router
 from resume_ai.api.routes.resume import router as resume_router
@@ -20,16 +21,21 @@ async def lifespan(app: FastAPI):
             await storage.ensure_bucket()
             await create_tables()
             await publisher.connect()
-            yield
-            await close_database()
-            await publisher.close()
+            await llm_runtime.start()
             break
         except RuntimeError:
             if attempt == 29:
                 raise
             await asyncio.sleep(2)
+    else:
+        raise RuntimeError("Application startup failed")
 
-    yield
+    try:
+        yield
+    finally:
+        await llm_runtime.close()
+        await close_database()
+        await publisher.close()
 
 
 app = FastAPI(

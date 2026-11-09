@@ -1,5 +1,5 @@
-
 import streamlit as st
+
 from ui.services.api_client import resume_api
 
 MAX_FILE_SIZE_MB = 10
@@ -24,9 +24,7 @@ if "uploader_version" not in st.session_state:
 # Upload section
 st.subheader("Upload resumes")
 
-st.markdown(
-    f"Upload multiple PDF resumes. Maximum file size: **{MAX_FILE_SIZE_MB} MB per file.**"
-)
+st.markdown(f"Upload multiple PDF resumes. Maximum file size: **{MAX_FILE_SIZE_MB} MB per file.**")
 
 uploaded_files = st.file_uploader(
     "Drag and drop PDF resumes here",
@@ -157,10 +155,7 @@ if not resumes:
     st.info("No resumes uploaded yet.")
 else:
     total_uploaded = len(resumes)
-    queued = sum(
-        resume["processing_status"] == "Queued"
-        for resume in resumes
-    )
+    queued = sum(resume["processing_status"] == "Queued" for resume in resumes)
 
     col1, col2 = st.columns(2)
 

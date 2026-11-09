@@ -1,8 +1,7 @@
-
-from resume_ai.schemas.search import CandidateMatch
+from resume_ai.ai.aggregate import candidate_aggregation
 from resume_ai.ai.retrival import candidate_retrieval
 from resume_ai.ai.tasks.query_embedding import query_embedding
-from resume_ai.ai.aggregate import candidate_aggregation
+from resume_ai.schemas.search import CandidateMatch
 
 
 class CandidateSearch:

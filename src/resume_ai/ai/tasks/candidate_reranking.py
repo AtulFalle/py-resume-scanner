@@ -1,4 +1,3 @@
-
 import json
 
 from resume_ai.ai.registry import model_registry
@@ -46,10 +45,10 @@ class CandidateRerankingTask:
                 8. Return an honest match score from 0 to 100.
                 9. Explain the assessment using concise, specific evidence.
                 """,
-                            },
-                            {
-                                "role": "user",
-                                "content": f"""
+            },
+            {
+                "role": "user",
+                "content": f"""
                 JOB DESCRIPTION:
                 <job_description>
                 {job_description}
@@ -76,9 +75,7 @@ class CandidateRerankingTask:
             result = json.loads(response)
             return CandidateEvaluation.model_validate(result)
         except (json.JSONDecodeError, ValueError) as error:
-            raise RuntimeError(
-                f"Invalid candidate evaluation response: {error}"
-            ) from error
+            raise RuntimeError(f"Invalid candidate evaluation response: {error}") from error
 
 
 candidate_reranking_task = CandidateRerankingTask()

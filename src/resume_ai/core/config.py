@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     ai_llm_base_url: str = "http://localhost:8080/v1"
     ai_llm_timeout: int = 1200
+    ai_embedding_timeout: int = 1200
     ai_resume_extraction_model: str = "resume-extractor"
     database_url: str
     rabbitmq_url: str

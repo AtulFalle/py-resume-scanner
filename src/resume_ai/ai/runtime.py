@@ -1,11 +1,76 @@
+import logging
+import time
 
 import httpx
 
 from resume_ai.ai.registry import EmbeddingModelConfig, ModelConfig
 from resume_ai.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 
 class LLMRuntime:
+    def __init__(self) -> None:
+        self._generation_client: httpx.AsyncClient | None = None
+        self._embedding_client: httpx.AsyncClient | None = None
+
+    async def start(self) -> None:
+        if self._generation_client is not None:
+            return
+
+        limits = httpx.Limits(
+            max_connections=10,
+            max_keepalive_connections=5,
+            keepalive_expiry=1500,
+        )
+        logger.info(
+            "LLM runtime started",
+            extra={"generation_timeout": settings.ai_llm_timeout},
+        )
+
+        self._generation_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                settings.ai_llm_timeout,
+                connect=5.0,
+                pool=5.0,
+            ),
+            limits=limits,
+        )
+
+        self._embedding_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                settings.ai_embedding_timeout,
+                connect=5.0,
+                pool=5.0,
+            ),
+            limits=limits,
+        )
+
+        logger.info("LLM runtime initialized")
+
+    async def close(self) -> None:
+        if self._generation_client is not None:
+            await self._generation_client.aclose()
+            self._generation_client = None
+
+        if self._embedding_client is not None:
+            await self._embedding_client.aclose()
+            self._embedding_client = None
+
+        logger.info("LLM runtime closed")
+
+    def _get_generation_client(self) -> httpx.AsyncClient:
+        if self._generation_client is None:
+            raise RuntimeError("LLM runtime has not been started")
+
+        return self._generation_client
+
+    def _get_embedding_client(self) -> httpx.AsyncClient:
+        if self._embedding_client is None:
+            raise RuntimeError("LLM runtime has not been started")
+
+        return self._embedding_client
+
     async def generate(
         self,
         model: ModelConfig,
@@ -30,40 +95,74 @@ class LLMRuntime:
                 },
             }
 
-        async with httpx.AsyncClient(
-            timeout=settings.ai_llm_timeout,
-        ) as client:
+        client = self._get_generation_client()
+        started_at = time.perf_counter()
+
+        try:
             response = await client.post(
                 f"{model.base_url}/chat/completions",
                 json=payload,
             )
+            response.raise_for_status()
 
-        if not response.is_success:
-            raise RuntimeError(
-                f"LLM request failed: HTTP {response.status_code} "
-                f"- {response.text}"
+            result = response.json()
+            choice = result["choices"][0]
+            message = choice.get("message", {})
+            content = message.get("content")
+
+            if isinstance(content, list):
+                content = "".join(
+                    item.get("text", "") for item in content if isinstance(item, dict)
+                )
+
+            if not content:
+                raise RuntimeError(
+                    "LLM returned empty content. "
+                    f"Finish reason: {choice.get('finish_reason')}. "
+                    f"Usage: {result.get('usage')}"
+                )
+
+            usage = result.get("usage", {})
+
+            logger.info(
+                "LLM generation completed model=%s duration_ms=%.2f "
+                "prompt_tokens=%s completion_tokens=%s",
+                model.name,
+                (time.perf_counter() - started_at) * 1000,
+                usage.get("prompt_tokens"),
+                usage.get("completion_tokens"),
             )
 
-        result = response.json()
-        choice = result["choices"][0]
-        message = choice.get("message", {})
-        content = message.get("content")
+            return content
 
-        if isinstance(content, list):
-            content = "".join(
-                item.get("text", "")
-                for item in content
-                if isinstance(item, dict)
+        except httpx.TimeoutException:
+            logger.exception(
+                "LLM generation timed out model=%s duration_ms=%.2f",
+                model.name,
+                (time.perf_counter() - started_at) * 1000,
             )
+            raise
 
-        if not content:
-            raise RuntimeError(
-                "LLM returned empty content. "
-                f"Finish reason: {choice.get('finish_reason')}. "
-                f"Usage: {result.get('usage')}"
+        except httpx.HTTPStatusError as error:
+            logger.error(
+                "LLM HTTP error model=%s status=%s duration_ms=%.2f",
+                model.name,
+                error.response.status_code,
+                (time.perf_counter() - started_at) * 1000,
             )
+            raise
 
-        return content
+        except httpx.RequestError:
+            logger.exception(
+                "LLM connection error model=%s duration_ms=%.2f",
+                model.name,
+                (time.perf_counter() - started_at) * 1000,
+            )
+            raise
+
+        except Exception:
+            logger.exception("LLM generation failed model=%s", model.name)
+            raise
 
     async def embed(
         self,
@@ -79,38 +178,68 @@ class LLMRuntime:
             "encoding_format": "float",
         }
 
-        async with httpx.AsyncClient(timeout=120) as client:
+        client = self._get_embedding_client()
+        started_at = time.perf_counter()
+
+        try:
             response = await client.post(
                 f"{model.base_url}/embeddings",
                 json=payload,
             )
+            response.raise_for_status()
 
-        if not response.is_success:
-            raise RuntimeError(
-                f"Embedding request failed: HTTP {response.status_code} "
-                f"- {response.text}"
+            result = response.json()
+            data = sorted(
+                result["data"],
+                key=lambda item: item["index"],
+            )
+            vectors = [item["embedding"] for item in data]
+
+            if len(vectors) != len(texts):
+                raise RuntimeError("Embedding response count does not match input count")
+
+            for vector in vectors:
+                if len(vector) != model.dimensions:
+                    raise RuntimeError(
+                        f"Expected {model.dimensions} dimensions, received {len(vector)}"
+                    )
+
+            logger.info(
+                "Embedding completed model=%s inputs=%d duration_ms=%.2f",
+                model.name,
+                len(texts),
+                (time.perf_counter() - started_at) * 1000,
             )
 
-        result = response.json()
-        data = sorted(
-            result["data"],
-            key=lambda item: item["index"],
-        )
-        vectors = [item["embedding"] for item in data]
+            return vectors
 
-        if len(vectors) != len(texts):
-            raise RuntimeError(
-                "Embedding response count does not match input count"
+        except httpx.TimeoutException:
+            logger.exception(
+                "Embedding timed out model=%s inputs=%d duration_ms=%.2f",
+                model.name,
+                len(texts),
+                (time.perf_counter() - started_at) * 1000,
             )
+            raise
 
-        for vector in vectors:
-            if len(vector) != model.dimensions:
-                raise RuntimeError(
-                    f"Expected {model.dimensions} dimensions, "
-                    f"received {len(vector)}"
-                )
+        except httpx.HTTPStatusError as error:
+            logger.error(
+                "Embedding HTTP error model=%s status=%s",
+                model.name,
+                error.response.status_code,
+            )
+            raise
 
-        return vectors
+        except httpx.RequestError:
+            logger.exception(
+                "Embedding connection error model=%s",
+                model.name,
+            )
+            raise
+
+        except Exception:
+            logger.exception("Embedding failed model=%s", model.name)
+            raise
 
 
 llm_runtime = LLMRuntime()

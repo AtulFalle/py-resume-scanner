@@ -1,4 +1,3 @@
-
 from resume_ai.ai.chunking import text_chunker
 from resume_ai.ai.registry import model_registry
 from resume_ai.ai.runtime import llm_runtime
@@ -19,10 +18,7 @@ class ResumeEmbeddingTask:
 
         vectors = await llm_runtime.embed(
             model=model,
-            texts=[
-                f"search_document: {chunk}"
-                for chunk in chunks
-            ],
+            texts=[f"search_document: {chunk}" for chunk in chunks],
         )
 
         return chunks, vectors

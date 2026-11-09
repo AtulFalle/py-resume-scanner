@@ -1,4 +1,3 @@
-
 from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
@@ -13,9 +12,7 @@ class QdrantStorage:
         self.client = AsyncQdrantClient(url=settings.qdrant_url)
 
     async def ensure_collection(self) -> None:
-        exists = await self.client.collection_exists(
-            self.COLLECTION_NAME
-        )
+        exists = await self.client.collection_exists(self.COLLECTION_NAME)
 
         if not exists:
             await self.client.create_collection(
@@ -37,7 +34,7 @@ class QdrantStorage:
 
         points = []
 
-        for index, (chunk, vector) in enumerate(zip(chunks, vectors)):
+        for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False)):
             if len(vector) != settings.ai_embedding_dimensions:
                 raise ValueError("Unexpected embedding dimensions")
 
@@ -85,7 +82,7 @@ class QdrantStorage:
 
     async def close(self) -> None:
         await self.client.close()
-        
+
     async def search_chunks(
         self,
         vector: list[float],

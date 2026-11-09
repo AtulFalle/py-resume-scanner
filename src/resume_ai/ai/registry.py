@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 
 from resume_ai.core.config import settings

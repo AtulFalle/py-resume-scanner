@@ -1,10 +1,8 @@
-
 from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid7
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 ResumeCategory = Literal[
     "HR",
@@ -32,6 +30,7 @@ ResumeCategory = Literal[
     "Arts",
     "Aviation",
 ]
+
 
 class SkillEvidence(BaseModel):
     source_type: Literal[
@@ -74,6 +73,7 @@ class CandidateProfile(BaseModel):
 
     domains: list[str] = Field(default_factory=list)
     skills: list[CandidateSkill] = Field(default_factory=list)
+
 
 class ResumeUploadResponse(BaseModel):
     id: UUID
@@ -125,7 +125,11 @@ class ResumeExtraction(BaseModel):
     @classmethod
     def normalize_null_strings(cls, value):
         if isinstance(value, str) and value.strip().lower() in {
-            "null", "none", "n/a", "not available", ""
+            "null",
+            "none",
+            "n/a",
+            "not available",
+            "",
         }:
             return None
         return value

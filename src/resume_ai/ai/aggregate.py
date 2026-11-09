@@ -1,4 +1,3 @@
-
 from collections import defaultdict
 
 from resume_ai.schemas.search import CandidateMatch, RetrievedChunk

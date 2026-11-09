@@ -20,9 +20,7 @@ class ResumeApiClient:
         )
 
         if not response.is_success:
-            raise RuntimeError(
-                f"Upload failed ({response.status_code}): {response.text}"
-            )
+            raise RuntimeError(f"Upload failed ({response.status_code}): {response.text}")
 
         return response.json()
 
@@ -34,9 +32,7 @@ class ResumeApiClient:
         )
 
         if not response.is_success:
-            raise RuntimeError(
-                f"Failed to fetch resumes ({response.status_code}): {response.text}"
-            )
+            raise RuntimeError(f"Failed to fetch resumes ({response.status_code}): {response.text}")
 
         result = response.json()
 
@@ -57,9 +53,7 @@ class ResumeApiClient:
         )
 
         if not response.is_success:
-            raise RuntimeError(
-                f"Candidate search failed ({response.status_code}): {response.text}"
-            )
+            raise RuntimeError(f"Candidate search failed ({response.status_code}): {response.text}")
 
         result = response.json()
 

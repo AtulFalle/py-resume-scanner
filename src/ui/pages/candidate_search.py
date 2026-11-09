@@ -1,8 +1,6 @@
-
 import streamlit as st
 
 from ui.services.api_client import resume_api
-
 
 st.set_page_config(
     page_title="Candidate Search",
@@ -150,8 +148,7 @@ if result:
                         icon = "⚪"
 
                     st.markdown(
-                        f"{icon} **{skill.get('requirement', 'Requirement')}** "
-                        f"— {status.title()}"
+                        f"{icon} **{skill.get('requirement', 'Requirement')}** — {status.title()}"
                     )
 
                     evidence = skill.get("candidate_evidence")
@@ -193,9 +190,7 @@ if result:
             matched_chunks = candidate.get("matched_chunks", [])
 
             if matched_chunks:
-                with st.expander(
-                    f"Matching resume excerpts ({len(matched_chunks)})"
-                ):
+                with st.expander(f"Matching resume excerpts ({len(matched_chunks)})"):
                     for chunk in matched_chunks:
                         st.markdown(
                             f"**Chunk {chunk.get('chunk_index', 0)}** "

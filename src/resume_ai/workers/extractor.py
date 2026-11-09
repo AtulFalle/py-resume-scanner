@@ -1,19 +1,18 @@
-
 import asyncio
 import logging
+from io import BytesIO
 from uuid import UUID
 
+from pypdf import PdfReader
 from sqlalchemy import update
 
+from resume_ai.ai.runtime import llm_runtime
 from resume_ai.ai.tasks.resume_extractor import resume_extraction_task
 from resume_ai.core.database import SessionFactory, close_database
 from resume_ai.message_queue.consumer import RabbitMQConsumer
 from resume_ai.message_queue.publisher import publisher
 from resume_ai.models.resume import Resume
 from resume_ai.storage.s3 import storage
-
-from io import BytesIO
-from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
 
@@ -68,21 +67,13 @@ async def process_resume(payload: dict) -> None:
         # 3. Extract PDF text.
         reader = PdfReader(BytesIO(file_content))
 
-        document_text = "\n".join(
-            page.extract_text() or ""
-            for page in reader.pages
-        ).strip()
+        document_text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
 
         if not document_text:
-            raise ValueError(
-                "No extractable text found in PDF. "
-                "Scanned PDFs require OCR support."
-            )
+            raise ValueError("No extractable text found in PDF. Scanned PDFs require OCR support.")
 
         # 4. Run the existing AI extraction task.
-        extraction = await resume_extraction_task.execute(
-            document_text
-        )
+        extraction = await resume_extraction_task.execute(document_text)
 
         # 5. Save results and advance lifecycle.
         async with SessionFactory() as db:
@@ -123,7 +114,7 @@ async def main() -> None:
     consumer = RabbitMQConsumer(QUEUE_NAME)
 
     try:
-        await publisher.connect()
+        await llm_runtime.start()
         await consumer.start(process_resume)
     finally:
         await publisher.close()

@@ -1,4 +1,3 @@
-
 from resume_ai.schemas.search import RetrievedChunk
 from resume_ai.storage.qdrant import qdrant_storage
 

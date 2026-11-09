@@ -24,9 +24,7 @@ class RabbitMQConsumer:
         self.channel = None
 
     async def start(self, handler: MessageHandler) -> None:
-        self.connection = await aio_pika.connect_robust(
-            settings.rabbitmq_url
-        )
+        self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
 
         self.channel = await self.connection.channel()
         await self.channel.set_qos(prefetch_count=1)
