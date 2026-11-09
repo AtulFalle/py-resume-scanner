@@ -114,9 +114,11 @@ async def main() -> None:
     consumer = RabbitMQConsumer(QUEUE_NAME)
 
     try:
+        await publisher.connect()
         await llm_runtime.start()
         await consumer.start(process_resume)
     finally:
+        await publisher.close()
         await publisher.close()
         await close_database()
 

@@ -87,13 +87,24 @@ class RabbitMQPublisher:
         queue_name: str,
         payload: dict,
     ) -> None:
-        if self.channel is None:
-            logger.error("Publisher channel is None while publishing to %s,", queue_name)
-            raise RuntimeError("RabbitMQ publisher is not connected")
+            
+            if self.channel is None or self.channel.is_closed:
+                raise RuntimeError("RabbitMQ publisher is not connected")
 
-        if self.channel.is_closed:
-            logger.error("Publisher channel is closed while publishing to %s", queue_name)
-            raise RuntimeError("RabbitMQ publisher channel is closed")
+            await self.declare_queue(queue_name)
+
+            message = Message(
+                body=json.dumps(payload).encode(),
+                content_type="application/json",
+                delivery_mode=DeliveryMode.PERSISTENT,
+            )
+
+            await self.channel.default_exchange.publish(
+                message,
+                routing_key=queue_name,
+            )
+
+            logger.info("Published message to %s", queue_name)
 
     async def declare_queue(self, queue_name: str):
         if self.channel is None:

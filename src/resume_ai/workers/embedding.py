@@ -103,6 +103,7 @@ async def main() -> None:
         await qdrant_storage.ensure_collection()
         await consumer.start(process_embedding)
     finally:
+        await llm_runtime.close()
         await qdrant_storage.close()
         await close_database()
 
