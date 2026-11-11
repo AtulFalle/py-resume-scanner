@@ -1,5 +1,5 @@
 
-from resume_ai.research.providers.base import ResearchProvider
+from resume_ai.providers.base import ResearchProvider
 
 
 class ProviderRegistry:
