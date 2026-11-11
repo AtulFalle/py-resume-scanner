@@ -13,6 +13,7 @@ from resume_ai.message_queue.consumer import RabbitMQConsumer
 from resume_ai.message_queue.publisher import publisher
 from resume_ai.models.resume import Resume
 from resume_ai.storage.s3 import storage
+from resume_ai.services.research_service import research_service
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,16 @@ async def process_resume(payload: dict) -> None:
         logger.exception("Resume extraction failed: %s", resume_id)
         await mark_failed(resume_id, str(error))
         raise
+    try:
+            await research_service.schedule(
+                resume_id=resume_id,
+                extracted_text=document_text,
+            )
+    except Exception:
+        logger.exception(
+            "Candidate profile research scheduling failed for resume %s",
+            resume_id,
+        )
 
 
 async def main() -> None:

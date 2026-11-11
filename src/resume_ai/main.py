@@ -12,6 +12,7 @@ from resume_ai.core.config import settings
 from resume_ai.core.database import close_database, create_tables
 from resume_ai.message_queue.publisher import publisher
 from resume_ai.storage.s3 import storage
+from resume_ai.models.research import ResumeResearch 
 
 
 @asynccontextmanager
