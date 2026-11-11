@@ -8,6 +8,7 @@ from resume_ai.core.database import SessionFactory
 from resume_ai.message_queue.publisher import publisher
 from resume_ai.models.research import ResumeResearch
 from resume_ai.research.discovery import discover_urls
+from dataclasses import asdict
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +21,10 @@ class ResearchService:
         resume_id: UUID,
         extracted_text: str,
     ) -> None:
-        # 1. Discover URLs from the extracted resume text.
-        discovered_urls = discover_urls(extracted_text)
+        discovered_urls = [
+            asdict(discovered_url)
+            for discovered_url in discover_urls(extracted_text)
+        ]
 
         # 2. Create a research run.
         no_sources_found = not discovered_urls
