@@ -162,7 +162,8 @@ class CandidateSearch:
         use_vector_filter = allowed_ids is not None and len(allowed_ids) <= MAX_IDS_IN_VECTOR_FILTER
         chunks = await candidate_retrieval.execute(
             query_vector=vector,
-            limit=settings.search_retrieval_limit,
+            # Enough chunks that every pre-filtered resume can be returned.
+            limit=max(settings.search_retrieval_limit, len(allowed_ids or []) * 10),
             resume_ids=allowed_ids if use_vector_filter else None,
         )
 
@@ -176,7 +177,8 @@ class CandidateSearch:
         if not matches:
             return respond([], "No indexed resumes matched this search.")
 
-        shortlist = matches[: request.limit or settings.search_shortlist_size]
+        # Every match is evaluated unless the caller explicitly caps it.
+        shortlist = matches[: request.limit] if request.limit else matches
         ranked = await candidate_reranking.execute(
             db=db,
             job_description=query,

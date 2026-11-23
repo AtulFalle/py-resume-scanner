@@ -41,7 +41,13 @@ with st.form("search_form"):
             help="0 = detect from the query.",
         )
         min_score = col2.slider("Minimum match score", 0, 100, 60)
-        limit = st.number_input("Candidates to evaluate", min_value=1, max_value=25, value=10)
+        limit = st.number_input(
+            "Max candidates to evaluate",
+            min_value=0,
+            value=0,
+            step=1,
+            help="0 = evaluate every matching resume.",
+        )
         include_unknown = st.checkbox("Include candidates with unknown experience", value=True)
     submitted = st.form_submit_button("Search", type="primary", icon=":material/search:")
 
@@ -54,7 +60,7 @@ if submitted:
             with st.spinner("Searching and evaluating candidates. This can take a few minutes..."):
                 st.session_state["search_result"] = resume_api.search_candidates(
                     query=query.strip(),
-                    limit=int(limit),
+                    limit=int(limit) or None,
                     min_score=int(min_score),
                     required_skills=skills or None,
                     categories=selected_categories or None,

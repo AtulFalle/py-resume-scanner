@@ -1,10 +1,12 @@
 import hashlib
 import logging
+import re
 from collections import OrderedDict
 
 from resume_ai.ai.experience import parse_years_from_query
 from resume_ai.ai.registry import model_registry
 from resume_ai.ai.runtime import llm_runtime
+from resume_ai.ai.skills import normalize_skill, text_has_skill
 from resume_ai.schemas.resume_schema import RESUME_CATEGORIES
 from resume_ai.schemas.search import SearchRequirements
 
@@ -38,6 +40,36 @@ Fields:
 _CACHE_SIZE = 256
 
 
+def _skill_in_query(skill: str, query: str) -> bool:
+    """True if the skill (or a known alias) is actually written in the query."""
+    if text_has_skill(query, skill):
+        return True
+    # Also accept stems like "interior design" inside "interior designer".
+    return normalize_skill(skill) in normalize_skill(query)
+
+
+def _ground_in_query(requirements: SearchRequirements, query: str) -> SearchRequirements:
+    """Drop hard filters the model invented.
+
+    Required skills and years become hard Postgres filters, so anything the
+    parser made up (e.g. "Programming" for "software developer", or 3-8 years
+    for a query that mentions no years) silently removes every candidate.
+    """
+    grounded = [s for s in requirements.required_skills if _skill_in_query(s, query)]
+    invented = [s for s in requirements.required_skills if s not in grounded]
+    if invented:
+        logger.info("Demoting ungrounded required skills to preferred: %s", invented)
+        requirements.required_skills = grounded
+        requirements.preferred_skills = [*invented, *requirements.preferred_skills]
+
+    if not re.search(r"\d", query):
+        # No number in the query → any years filter was inferred, not asked for.
+        requirements.min_years = None
+        requirements.max_years = None
+
+    return requirements
+
+
 class QueryParser:
     def __init__(self) -> None:
         self._cache: OrderedDict[str, SearchRequirements] = OrderedDict()
@@ -55,6 +87,8 @@ class QueryParser:
         except Exception:
             logger.exception("Query parsing failed; falling back to plain search")
             requirements = SearchRequirements(search_text=query)
+
+        requirements = _ground_in_query(requirements, query)
 
         # Deterministic safety net for the most common filter.
         if requirements.min_years is None:

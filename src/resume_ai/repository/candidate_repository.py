@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import Select, Text, and_, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from resume_ai.ai.skills import skill_pattern
+from resume_ai.ai.skills import resume_skill_pattern
 from resume_ai.models.candidate import CandidateProfile
 from resume_ai.models.resume import COMPLETED_STATUS, FAILED_STATUSES, Resume
 
@@ -136,7 +136,7 @@ class CandidateRepository:
         conditions = [Resume.status == COMPLETED_STATUS]
 
         for skill in required_skills:
-            pattern = skill_pattern(skill)
+            pattern = resume_skill_pattern(skill)
             if pattern is None:
                 continue
             conditions.append(

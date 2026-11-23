@@ -41,12 +41,31 @@ ALIAS_GROUPS: list[set[str]] = [
     {"gst", "goods and services tax"},
     {"human resources", "hr"},
     {"ui/ux", "ui ux", "ux/ui", "user experience"},
+    {"html", "html5", "xhtml"},
+    {"css", "css3"},
 ]
 
 _ALIAS_LOOKUP: dict[str, set[str]] = {}
 for _group in ALIAS_GROUPS:
     for _name in _group:
         _ALIAS_LOOKUP[_name] = _group
+
+_FRONTEND_FRAMEWORKS = {
+    "angular", "angularjs", "react", "reactjs", "react.js", "vue", "vuejs", "vue.js",
+    "svelte", "next.js", "nextjs", "nuxt", "ember",
+}
+
+# One-way implications for resume filtering: a resume that lists any skill on
+# the right demonstrably has the skill on the left (SCSS → CSS, Angular → HTML),
+# even if the generic name is never written. Not used for query parsing.
+IMPLIED_BY: dict[str, set[str]] = {
+    "css": {"scss", "sass", "less", "tailwind", "tailwind css", "tailwindcss", "bootstrap",
+            *_FRONTEND_FRAMEWORKS},
+    "html": {*_FRONTEND_FRAMEWORKS, "jsx", "tsx"},
+    "javascript": {"typescript", "node.js", "nodejs", *_FRONTEND_FRAMEWORKS},
+    "devops": {"docker", "kubernetes", "k8s", "ci/cd", "cicd", "jenkins", "terraform",
+               "github actions", "gitlab ci", "ansible"},
+}
 
 # Characters that can be part of a skill token; a match must not be
 # surrounded by them (so "java" doesn't match "javascript").
@@ -101,6 +120,21 @@ def skill_pattern(name: str) -> str | None:
     if not variants:
         return None
     alternatives = "|".join(_escape(variant) for variant in variants)
+    return f"{_PREFIX}({alternatives}){_SUFFIX}"
+
+
+def resume_skill_pattern(name: str) -> str | None:
+    """Like skill_pattern, but also accepts skills that imply this one.
+
+    Use this for filtering resumes: "CSS" matches a resume that says "SCSS".
+    """
+    variants = skill_variants(name)
+    for variant in list(variants):
+        variants |= IMPLIED_BY.get(variant, set())
+    if not variants:
+        return None
+    ordered = sorted(variants, key=len, reverse=True)
+    alternatives = "|".join(_escape(variant) for variant in ordered)
     return f"{_PREFIX}({alternatives}){_SUFFIX}"
 
 

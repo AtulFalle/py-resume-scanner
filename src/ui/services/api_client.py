@@ -98,7 +98,7 @@ class ResumeApiClient:
     def search_candidates(
         self,
         query: str,
-        limit: int = 10,
+        limit: int | None = None,
         min_score: int | None = None,
         required_skills: list[str] | None = None,
         categories: list[str] | None = None,
@@ -114,7 +114,7 @@ class ResumeApiClient:
             "min_years": min_years,
             "include_unknown_experience": include_unknown_experience,
         }
-        result = self._request("POST", "/search", timeout=600, json=payload).json()
+        result = self._request("POST", "/search", timeout=3600, json=payload).json()
         if not isinstance(result, dict) or "candidates" not in result:
             raise RuntimeError("Unexpected candidate search response.")
         return result

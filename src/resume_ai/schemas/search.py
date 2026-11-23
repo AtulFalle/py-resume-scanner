@@ -62,9 +62,9 @@ class SearchRequirements(BaseModel):
 class CandidateSearchRequest(BaseModel):
     query: str = Field(min_length=3, max_length=20000)
 
-    # Max candidates sent to the LLM for evaluation (the slow step).
-    # Defaults to SEARCH_SHORTLIST_SIZE.
-    limit: int | None = Field(default=None, ge=1, le=25)
+    # Optional cap on candidates sent to the LLM for evaluation (the slow step).
+    # None = evaluate every resume that passed the filters and vector search.
+    limit: int | None = Field(default=None, ge=1)
 
     # Candidates scoring below this are dropped. Defaults to SEARCH_MIN_MATCH_SCORE.
     min_score: int | None = Field(default=None, ge=0, le=100)
