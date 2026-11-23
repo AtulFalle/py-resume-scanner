@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID, uuid7
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 ResumeCategory = Literal[
     "HR",
@@ -31,6 +31,34 @@ ResumeCategory = Literal[
     "Aviation",
 ]
 
+RESUME_CATEGORIES: list[str] = list(ResumeCategory.__args__)  # type: ignore[attr-defined]
+
+Seniority = Literal[
+    "entry",
+    "junior",
+    "mid",
+    "senior",
+    "lead",
+    "manager",
+    "executive",
+    "unknown",
+]
+
+
+def _cap(limit: int) -> BeforeValidator:
+    """Keep at most `limit` list items.
+
+    Limits are also stated in the prompt; truncating here keeps validation
+    from failing on model servers that don't enforce them.
+    """
+
+    def validator(value):
+        if isinstance(value, list):
+            return value[:limit]
+        return value
+
+    return BeforeValidator(validator)
+
 
 class SkillEvidence(BaseModel):
     source_type: Literal[
@@ -46,7 +74,7 @@ class SkillEvidence(BaseModel):
 class CandidateSkill(BaseModel):
     name: str = Field(min_length=1)
     normalized_name: str = Field(min_length=1)
-    evidence: list[SkillEvidence] = Field(default_factory=list)
+    evidence: Annotated[list[SkillEvidence], _cap(2)] = Field(default_factory=list)
 
 
 class CandidateProfile(BaseModel):
@@ -55,24 +83,12 @@ class CandidateProfile(BaseModel):
     # Category predicted from the resume's actual content.
     category: ResumeCategory | None = None
 
-    # Preserve the dataset's original label for evaluation.
-    dataset_category: ResumeCategory | None = None
+    role_evidence: Annotated[list[str], _cap(3)] = Field(default_factory=list)
 
-    role_evidence: list[str] = Field(default_factory=list)
+    seniority: Seniority = "unknown"
 
-    seniority: Literal[
-        "entry",
-        "junior",
-        "mid",
-        "senior",
-        "lead",
-        "manager",
-        "executive",
-        "unknown",
-    ] = "unknown"
-
-    domains: list[str] = Field(default_factory=list)
-    skills: list[CandidateSkill] = Field(default_factory=list)
+    domains: Annotated[list[str], _cap(5)] = Field(default_factory=list)
+    skills: Annotated[list[CandidateSkill], _cap(40)] = Field(default_factory=list)
 
 
 class ResumeUploadResponse(BaseModel):
@@ -87,7 +103,7 @@ class WorkExperience(BaseModel):
     designation: str | None = None
     start_date: str | None = None
     end_date: str | None = None
-    responsibilities: list[str] = Field(default_factory=list)
+    responsibilities: Annotated[list[str], _cap(5)] = Field(default_factory=list)
 
 
 class Education(BaseModel):
@@ -106,7 +122,7 @@ class ResumeExtraction(BaseModel):
     total_experience: str | None = None
 
     # Retained for compatibility with existing consumers.
-    skills: list[str] = Field(default_factory=list)
+    skills: Annotated[list[str], _cap(40)] = Field(default_factory=list)
 
     work_experience: list[WorkExperience] = Field(default_factory=list)
     education: list[Education] = Field(default_factory=list)
@@ -129,6 +145,7 @@ class ResumeExtraction(BaseModel):
             "none",
             "n/a",
             "not available",
+            "not mentioned",
             "",
         }:
             return None
@@ -138,6 +155,36 @@ class ResumeExtraction(BaseModel):
 class ResumeExtractionRequest(BaseModel):
     resume_id: UUID = Field(default_factory=uuid7)
     document_text: str = Field(min_length=1, max_length=60000)
+
+
+class ResumeSummary(BaseModel):
+    """Lightweight resume row for lists (no extracted text)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    filename: str
+    content_type: str
+    file_size: int
+    status: str
+    retry_count: int
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    full_name: str | None = None
+    primary_role: str | None = None
+    category: str | None = None
+    seniority: str | None = None
+    total_experience_years: float | None = None
+    location: str | None = None
+
+
+class ResumePage(BaseModel):
+    total: int
+    offset: int
+    limit: int
+    items: list[ResumeSummary]
 
 
 class ResumeResponse(BaseModel):
@@ -155,3 +202,12 @@ class ResumeResponse(BaseModel):
     error_message: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class ResumeStats(BaseModel):
+    total: int
+    completed: int
+    processing: int
+    failed: int
+    by_status: dict[str, int]
+    by_category: dict[str, int]

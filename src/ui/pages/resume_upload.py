@@ -1,17 +1,11 @@
 import streamlit as st
 
-from ui.services.api_client import resume_api
+from ui.services.api_client import DuplicateResumeError, resume_api
 
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
 
-st.set_page_config(
-    page_title="Resume Ingestion",
-    page_icon="📄",
-    layout="wide",
-)
-
-st.title("Resume Ingestion")
+st.title("Upload resumes")
 st.caption("Upload and manage resumes in your candidate database.")
 
 # Initialize session state
@@ -68,7 +62,7 @@ if uploaded_files:
         col1, col2, col3 = st.columns([5, 2, 1])
 
         with col1:
-            st.write(f"📄 {file.name}")
+            st.write(file.name)
 
         with col2:
             st.caption(f"{file.size / 1024:.1f} KB")
@@ -90,14 +84,14 @@ if uploaded_files:
         upload_clicked = st.button(
             "Upload resumes",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             disabled=not valid_files,
         )
 
     with col2:
         clear_clicked = st.button(
             "Clear selection",
-            use_container_width=True,
+            width="stretch",
         )
 
     if clear_clicked:
@@ -108,6 +102,7 @@ if uploaded_files:
         progress = st.progress(0)
         uploaded_count = 0
         failed_count = 0
+        duplicate_count = 0
 
         for index, file in enumerate(valid_files):
             try:
@@ -130,6 +125,10 @@ if uploaded_files:
 
                 uploaded_count += 1
 
+            except DuplicateResumeError as error:
+                duplicate_count += 1
+                st.warning(f"{file.name}: duplicate, already uploaded ({error})")
+
             except Exception as error:
                 failed_count += 1
                 st.error(f"{file.name}: {error}")
@@ -139,11 +138,13 @@ if uploaded_files:
         if uploaded_count:
             st.success(f"{uploaded_count} resume(s) uploaded successfully.")
 
+        if duplicate_count:
+            st.warning(f"{duplicate_count} duplicate resume(s) skipped.")
+
         if failed_count:
             st.warning(f"{failed_count} resume(s) failed to upload.")
 
         st.session_state.uploader_version += 1
-        st.rerun()
 
 # Upload history
 st.divider()
@@ -155,7 +156,9 @@ if not resumes:
     st.info("No resumes uploaded yet.")
 else:
     total_uploaded = len(resumes)
-    queued = sum(resume["processing_status"] == "Queued" for resume in resumes)
+    queued = sum(
+        str(resume["processing_status"]).lower() in {"uploaded", "queued"} for resume in resumes
+    )
 
     col1, col2 = st.columns(2)
 
@@ -170,7 +173,7 @@ else:
             col1, col2, col3 = st.columns([4, 2, 2])
 
             with col1:
-                st.markdown(f"**📄 {resume['filename']}**")
+                st.markdown(f"**{resume['filename']}**")
                 st.caption(f"{resume['size'] / 1024:.1f} KB")
 
             with col2:
@@ -178,3 +181,6 @@ else:
 
             with col3:
                 st.info(resume["processing_status"])
+
+
+st.page_link("pages/resume_list.py", label="View candidates library", icon=":material/groups:")

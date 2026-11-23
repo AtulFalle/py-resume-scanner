@@ -1,8 +1,11 @@
+import logging
 from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
 
 from resume_ai.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class QdrantStorage:
@@ -23,6 +26,16 @@ class QdrantStorage:
                 ),
             )
 
+        # Index used to restrict vector search to pre-filtered candidates.
+        try:
+            await self.client.create_payload_index(
+                collection_name=self.COLLECTION_NAME,
+                field_name="resume_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
+        except Exception:
+            logger.debug("resume_id payload index already exists or could not be created")
+
     async def upsert_chunks(
         self,
         resume_id: str,
@@ -34,7 +47,7 @@ class QdrantStorage:
 
         points = []
 
-        for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=False)):
+        for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
             if len(vector) != settings.ai_embedding_dimensions:
                 raise ValueError("Unexpected embedding dimensions")
 
@@ -57,7 +70,16 @@ class QdrantStorage:
                 )
             )
 
-        # Remove old chunks when reprocessing a resume.
+        await self.delete_resume(resume_id)
+
+        if points:
+            await self.client.upsert(
+                collection_name=self.COLLECTION_NAME,
+                points=points,
+                wait=True,
+            )
+
+    async def delete_resume(self, resume_id: str) -> None:
         await self.client.delete(
             collection_name=self.COLLECTION_NAME,
             points_selector=models.FilterSelector(
@@ -73,13 +95,6 @@ class QdrantStorage:
             wait=True,
         )
 
-        if points:
-            await self.client.upsert(
-                collection_name=self.COLLECTION_NAME,
-                points=points,
-                wait=True,
-            )
-
     async def close(self) -> None:
         await self.client.close()
 
@@ -88,15 +103,28 @@ class QdrantStorage:
         vector: list[float],
         limit: int = 50,
         score_threshold: float | None = None,
+        resume_ids: list[str] | None = None,
     ) -> list[models.ScoredPoint]:
         if len(vector) != settings.ai_embedding_dimensions:
             raise ValueError("Unexpected query embedding dimensions")
+
+        query_filter = None
+        if resume_ids is not None:
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="resume_id",
+                        match=models.MatchAny(any=resume_ids),
+                    )
+                ]
+            )
 
         result = await self.client.query_points(
             collection_name=self.COLLECTION_NAME,
             query=vector,
             limit=limit,
             score_threshold=score_threshold,
+            query_filter=query_filter,
             with_payload=True,
         )
 

@@ -1,34 +1,54 @@
+# Shared settings for the API and the workers. Connection URLs are built from
+# the same .env credentials, so one .env works both locally and in Docker.
+x-app-environment: &app-environment
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+  QDRANT_URL: http://qdrant:6333
+  S3_ENDPOINT_URL: rustfs:9000
+  S3_SECURE: "false"
+  AI_LLM_BASE_URL: http://host.docker.internal:8080/v1
+  AI_EMBEDDING_BASE_URL: http://host.docker.internal:8081/v1
+  AI_LLM_TIMEOUT: "120"
+  AI_RESUME_EXTRACTION_MODEL: resume-extractor
+
+x-app-service: &app-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env
+  environment:
+    <<: *app-environment
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+x-worker-depends-on: &worker-depends-on
+  postgres:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
+
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    <<: *app-service
     container_name: resume-ai-api
     ports:
       - "8000:8000"
-    env_file:
-      - .env
-    environment:
-      S3_ENDPOINT_URL: rustfs:9000
-      S3_SECURE: "false"
-      AI_LLM_BASE_URL: http://host.docker.internal:8080/v1
-      AI_LLM_TIMEOUT: "120"
-      AI_RESUME_EXTRACTION_MODEL: resume-extractor
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
+      <<: *worker-depends-on
       rustfs:
         condition: service_started
-    restart: unless-stopped
+      qdrant:
+        condition: service_started
+
   ui:
     build:
       context: .
       dockerfile: Dockerfile
-
     container_name: resume-screener-ui
     environment:
       API_BASE_URL: http://api:8000
-
     command:
       - uv
       - run
@@ -42,14 +62,36 @@ services:
       - "8501"
       - --server.headless
       - "true"
-
     ports:
       - "8501:8501"
-
     depends_on:
       - api
-
     restart: unless-stopped
+
+  extractor:
+    <<: *app-service
+    container_name: resume-ai-extractor-job
+    command: ["uv", "run", "--no-sync", "python", "-m", "resume_ai.workers.extractor"]
+    depends_on:
+      <<: *worker-depends-on
+      rustfs:
+        condition: service_started
+
+  embedding:
+    <<: *app-service
+    container_name: resume-ai-embedding
+    command: ["uv", "run", "--no-sync", "python", "-m", "resume_ai.workers.embedding"]
+    depends_on:
+      <<: *worker-depends-on
+      qdrant:
+        condition: service_started
+
+  research:
+    <<: *app-service
+    container_name: resume-ai-research
+    command: ["uv", "run", "--no-sync", "python", "-m", "resume_ai.workers.research"]
+    depends_on:
+      <<: *worker-depends-on
 
   rustfs:
     image: rustfs/rustfs:latest
@@ -67,6 +109,7 @@ services:
     volumes:
       - rustfs_data:/data
     restart: unless-stopped
+
   postgres:
     image: postgres:17-alpine
     container_name: resume-ai-postgres
@@ -94,37 +137,13 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
-
-  extractor:
-    container_name: resume-ai-extractor-job
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env
-    environment:
-      S3_ENDPOINT_URL: rustfs:9000
-      S3_SECURE: "false"
-      AI_LLM_BASE_URL: http://host.docker.internal:8080/v1
-      AI_LLM_TIMEOUT: "120"
-      AI_RESUME_EXTRACTION_MODEL: resume-extractor
-    command:
-      - uv
-      - run
-      - --no-sync
-      - python
-      - -m
-      - resume_ai.workers.extractor
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      rustfs:
-        condition: service_started
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
     restart: unless-stopped
 
-  
   qdrant:
     image: qdrant/qdrant:latest
     container_name: resume-ai-qdrant
@@ -135,36 +154,7 @@ services:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
 
-  embedding:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: resume-ai-embedding
-    env_file:
-      - .env
-    environment:
-      QDRANT_URL: http://qdrant:6333
-      AI_EMBEDDING_BASE_URL: http://host.docker.internal:8081/v1
-    command:
-      - uv
-      - run
-      - --no-sync
-      - python
-      - -m
-      - resume_ai.workers.embedding
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-    restart: unless-stopped
-
-
-
 volumes:
   rustfs_data:
   postgres_data:
   qdrant_data:
-

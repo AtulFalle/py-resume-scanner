@@ -6,7 +6,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from resume_ai.research.providers.base import (
+from resume_ai.core.config import settings
+from resume_ai.providers.base import (
     ResearchProvider,
     SourceEvidence,
     SourceResult,
@@ -55,9 +56,12 @@ class GitHubProvider(ResearchProvider):
             "User-Agent": "ResumeResearch/1.0",
         }
 
+        if settings.github_token:
+            headers["Authorization"] = f"Bearer {settings.github_token}"
+
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(15.0, connect=5.0),
+                timeout=httpx.Timeout(settings.research_http_timeout, connect=5.0),
                 follow_redirects=False,
                 headers=headers,
             ) as client:

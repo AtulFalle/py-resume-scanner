@@ -7,6 +7,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from resume_ai.core.database import Base
 
+# uploaded → queued → extracting → embedding_queued → embedding → embedded
+# failure states: queue_failed, failed, embedding_failed
+FAILED_STATUSES = {"queue_failed", "failed", "embedding_failed"}
+COMPLETED_STATUS = "embedded"
+
 
 class Resume(Base):
     __tablename__ = "resumes"
@@ -21,6 +26,9 @@ class Resume(Base):
     object_name: Mapped[str] = mapped_column(String(500), unique=True)
     content_type: Mapped[str] = mapped_column(String(100))
     file_size: Mapped[int]
+
+    # SHA-256 of the uploaded file, used to reject duplicate uploads.
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     status: Mapped[str] = mapped_column(
         String(30),

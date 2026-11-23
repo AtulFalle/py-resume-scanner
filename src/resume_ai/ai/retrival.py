@@ -7,10 +7,12 @@ class CandidateRetrieval:
         self,
         query_vector: list[float],
         limit: int = 50,
+        resume_ids: list[str] | None = None,
     ) -> list[RetrievedChunk]:
         points = await qdrant_storage.search_chunks(
             vector=query_vector,
             limit=limit,
+            resume_ids=resume_ids,
         )
 
         chunks = []

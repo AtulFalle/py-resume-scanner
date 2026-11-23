@@ -2,162 +2,120 @@ import streamlit as st
 
 from ui.services.api_client import resume_api
 
+PAGE_SIZE = 25
+STATUSES = [
+    "uploaded",
+    "queued",
+    "extracting",
+    "embedding_queued",
+    "embedding",
+    "embedded",
+    "queue_failed",
+    "failed",
+    "embedding_failed",
+]
 
-def format_file_size(size: int) -> str:
-    if size < 1024 * 1024:
-        return f"{size / 1024:.1f} KB"
-
-    return f"{size / (1024 * 1024):.2f} MB"
-
-
-def format_timestamp(value: str | None) -> str:
-    if not value:
-        return "—"
-
-    return value.replace("T", " ").replace("Z", " UTC")[:23]
-
-
-st.set_page_config(
-    page_title="Resume Library",
-    page_icon="📚",
-    layout="wide",
-)
-
-st.title("Resume Library")
-st.caption("View uploaded resumes and monitor their processing status.")
-
-header_col, refresh_col = st.columns([5, 1])
-
-with refresh_col:
-    refresh = st.button("↻ Refresh", use_container_width=True)
+st.title("Candidates")
+st.caption("Browse uploaded resumes and monitor their processing status.")
 
 try:
-    resumes = resume_api.list_resumes()
+    stats = resume_api.get_stats()
 except Exception as error:
-    st.error(f"Unable to load resumes: {error}")
-    st.stop()
+    st.error(f"Unable to load statistics: {error}")
+    stats = None
 
-if not resumes:
-    st.info("No resumes found. Upload resumes to get started.")
-    st.stop()
-
-# Summary metrics
-statuses = [resume.get("status", "unknown") for resume in resumes]
-
-total = len(resumes)
-completed = sum(status in {"completed", "embedded"} for status in statuses)
-failed = sum(status.endswith("_failed") for status in statuses)
-pending = total - completed - failed
-
-col1, col2, col3, col4 = st.columns(4)
-
-col1.metric("Total resumes", total)
-col2.metric("Completed", completed)
-col3.metric("Processing", pending)
-col4.metric("Failed", failed)
-
-st.divider()
-
-# Filters
-filter_col, search_col = st.columns([1, 2])
-
-with filter_col:
-    selected_status = st.selectbox(
-        "Filter by status",
-        options=["All"] + sorted(set(statuses)),
-    )
-
-with search_col:
-    search_term = st.text_input(
-        "Search resumes",
-        placeholder="Search by filename...",
-    )
-
-filtered_resumes = resumes
-
-if selected_status != "All":
-    filtered_resumes = [
-        resume for resume in filtered_resumes if resume.get("status") == selected_status
-    ]
-
-if search_term:
-    filtered_resumes = [
-        resume
-        for resume in filtered_resumes
-        if search_term.lower() in resume.get("filename", "").lower()
-    ]
-
-st.subheader(f"Resumes ({len(filtered_resumes)})")
-
-if filtered_resumes:
-    table_data = [
-        {
-            "Filename": resume.get("filename", "Unknown"),
-            "Status": resume.get("status", "unknown"),
-            "Size": format_file_size(resume.get("file_size", 0)),
-            "Uploaded": format_timestamp(resume.get("created_at")),
-            "Last updated": format_timestamp(resume.get("updated_at")),
-        }
-        for resume in filtered_resumes
-    ]
-
-    st.dataframe(
-        table_data,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Filename": st.column_config.TextColumn("Filename"),
-            "Status": st.column_config.TextColumn("Processing status"),
-            "Size": st.column_config.TextColumn("File size"),
-            "Retries": st.column_config.NumberColumn("Retries"),
-            "Uploaded": st.column_config.TextColumn("Uploaded"),
-            "Last updated": st.column_config.TextColumn("Last updated"),
-            "Error": st.column_config.TextColumn("Error"),
-        },
-    )
+if stats:
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total", stats["total"])
+    m2.metric("Completed", stats["completed"])
+    m3.metric("Processing", stats["processing"])
+    m4.metric("Failed", stats["failed"])
+    category_options = sorted((stats.get("by_category") or {}).keys())
 else:
-    st.info("No resumes match your filters.")
+    category_options = []
 
-# Resume details
-st.divider()
-st.subheader("Resume details")
+f1, f2, f3 = st.columns(3)
+status = f1.selectbox("Status", ["All", *STATUSES], key="lib_status")
+category = f2.selectbox("Category", ["All", *category_options], key="lib_category")
+text = f3.text_input("Search name, filename or role", key="lib_q")
 
-resume_options = {
-    f"{resume.get('filename', 'Unknown')} ({resume.get('id', '')[:8]})": resume
-    for resume in filtered_resumes
-}
+a1, a2, _ = st.columns([1, 1, 3])
+if a1.button("Retry failed resumes", icon=":material/refresh:"):
+    try:
+        res = resume_api.reprocess_failed()
+        st.success(f"Requeued {res.get('requeued', 0)} resume(s).")
+    except Exception as error:
+        st.error(f"Retry failed: {error}")
+auto = a2.toggle("Auto-refresh (5 s)", key="lib_auto")
 
-if resume_options:
-    selected_resume_name = st.selectbox(
-        "Select a resume",
-        options=list(resume_options.keys()),
+
+@st.fragment(run_every=5 if auto else None)
+def table_section() -> None:
+    page_count_key = "lib_page"
+    page = int(st.session_state.get(page_count_key, 1))
+    try:
+        data = resume_api.list_resumes(
+            offset=(page - 1) * PAGE_SIZE,
+            limit=PAGE_SIZE,
+            status=None if status == "All" else status,
+            category=None if category == "All" else category,
+            q=text.strip() or None,
+        )
+    except Exception as error:
+        st.error(f"Unable to load resumes: {error}")
+        return
+
+    total = data.get("total", 0)
+    items = data.get("items") or []
+    pages = max(1, -(-total // PAGE_SIZE))
+    if page > pages:
+        st.session_state[page_count_key] = 1
+        st.rerun(scope="fragment")
+
+    if not items:
+        st.info("No resumes match the current filters.")
+        return
+
+    rows = [
+        {
+            "Name": item.get("full_name") or item.get("filename"),
+            "Role": item.get("primary_role") or "",
+            "Category": item.get("category") or "",
+            "Years": item.get("total_experience_years"),
+            "Status": (
+                "completed" if item.get("status") == "embedded" else item.get("status", "")
+            ),
+            "Retries": item.get("retry_count", 0),
+            "Error": item.get("error_message") or "",
+            "Uploaded": str(item.get("created_at", "")).replace("T", " ")[:16],
+        }
+        for item in items
+    ]
+    event = st.dataframe(
+        rows,
+        hide_index=True,
+        width="stretch",
+        on_select="rerun",
+        selection_mode="single-row",
+        key="lib_table",
     )
+    selected = event.selection.rows if event and event.selection else []
 
-    selected_resume = resume_options[selected_resume_name]
+    p1, p2 = st.columns([1, 3])
+    p1.number_input("Page", min_value=1, max_value=pages, key=page_count_key)
+    p2.caption(f"{total} resumes · page {page} of {pages}")
 
-    col1, col2 = st.columns(2)
+    if selected:
+        item = items[selected[0]]
+        if st.button(
+            f"Open profile: {rows[selected[0]]['Name']}",
+            type="primary",
+            icon=":material/person:",
+        ):
+            st.session_state["selected_resume_id"] = str(item["id"])
+            st.switch_page("pages/candidate_profile.py")
+    else:
+        st.caption("Select a row to open the candidate profile.")
 
-    with col1:
-        st.write("**Resume ID**")
-        st.code(selected_resume.get("id", ""))
 
-        st.write("**Object name**")
-        st.write(selected_resume.get("object_name", "—"))
-
-    with col2:
-        st.write("**Content type**")
-        st.write(selected_resume.get("content_type", "—"))
-
-        st.write("**Processing error**")
-        if selected_resume.get("error_message"):
-            st.error(selected_resume["error_message"])
-        else:
-            st.write("No errors reported.")
-
-    with st.expander("Extraction result"):
-        extraction_result = selected_resume.get("extraction_result")
-
-        if extraction_result:
-            st.json(extraction_result)
-        else:
-            st.info("Extraction result is not available yet.")
+table_section()

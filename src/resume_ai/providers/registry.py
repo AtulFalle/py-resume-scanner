@@ -25,3 +25,17 @@ class ProviderRegistry:
 
 
 provider_registry = ProviderRegistry()
+
+
+def _register_default_providers() -> None:
+    # Imported here so provider modules can import base without a cycle.
+    from resume_ai.providers.github import GitHubProvider
+    from resume_ai.providers.linkedin import LinkedInProvider
+    from resume_ai.providers.website import WebsiteProvider
+
+    for provider in (GitHubProvider(), WebsiteProvider(), LinkedInProvider()):
+        if provider_registry.get(provider.source_type) is None:
+            provider_registry.register(provider)
+
+
+_register_default_providers()

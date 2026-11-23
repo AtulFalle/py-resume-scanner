@@ -12,7 +12,7 @@ class S3Storage:
             endpoint=settings.s3_endpoint_url,
             access_key=settings.s3_access_key,
             secret_key=settings.s3_secret_key,
-            secure=False,
+            secure=settings.s3_secure,
         )
         self.bucket = settings.s3_bucket
 

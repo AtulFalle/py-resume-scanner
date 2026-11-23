@@ -1,122 +1,52 @@
 import json
+import logging
 
 import aio_pika
 from aio_pika import DeliveryMode, ExchangeType, Message
+from aio_pika.abc import AbstractChannel, AbstractRobustConnection
 
 from resume_ai.core.config import settings
-import logging
-
 
 logger = logging.getLogger(__name__)
+
 DEAD_LETTER_EXCHANGE = "resume.dlx"
+DEAD_LETTER_QUEUE = "resume.dlq"
 
 
 class RabbitMQPublisher:
     QUEUE_NAME = "resume.processing"
 
     def __init__(self) -> None:
-        self.connection = None
-        self.channel = None
+        self.connection: AbstractRobustConnection | None = None
+        self.channel: AbstractChannel | None = None
+        self._declared: set[str] = set()
 
     async def connect(self) -> None:
         self.connection = await aio_pika.connect_robust(settings.rabbitmq_url)
-
         self.channel = await self.connection.channel(publisher_confirms=True)
+        self._declared.clear()
 
-        from aio_pika import ExchangeType
+        await self.declare_queue(self.QUEUE_NAME)
 
-        # Inside connect(), after creating the channel:
+        logger.info("RabbitMQ publisher connected")
 
-        await self.channel.declare_exchange(
-            "resume.dlx",
-            ExchangeType.DIRECT,
-            durable=True,
-        )
-
-        await self.channel.declare_queue(
-            "resume.dlq",
-            durable=True,
-        )
-
-        await self.channel.declare_queue(
-            self.QUEUE_NAME,
-            durable=True,
-            arguments={
-                "x-dead-letter-exchange": "resume.dlx",
-                "x-dead-letter-routing-key": self.QUEUE_NAME,
-            },
-        )
-        logger.info(
-            "RabbitMQ publisher connected: connection_closed=%s channel_closed=%s",
-            self.connection.is_closed,
-            self.channel.is_closed,
-        )
-
-    async def publish_resume(
-        self,
-        resume_id: str,
-        object_name: str,
-    ) -> None:
+    async def declare_queue(self, queue_name: str) -> None:
+        """Declare a durable queue whose rejected messages go to resume.dlq."""
         if self.channel is None:
             raise RuntimeError("RabbitMQ publisher is not connected")
 
-        message = Message(
-            body=json.dumps(
-                {
-                    "resume_id": resume_id,
-                    "object_name": object_name,
-                }
-            ).encode(),
-            content_type="application/json",
-            delivery_mode=DeliveryMode.PERSISTENT,
-            message_id=resume_id,
-        )
+        if queue_name in self._declared:
+            return
 
-        await self.channel.default_exchange.publish(
-            message,
-            routing_key=self.QUEUE_NAME,
-        )
-
-    async def close(self) -> None:
-        logger.warning("Closing RabbitMQ publisher")
-        if self.connection and not self.connection.is_closed:
-            await self.connection.close()
-
-    async def publish_message(
-        self,
-        queue_name: str,
-        payload: dict,
-    ) -> None:
-            
-            if self.channel is None or self.channel.is_closed:
-                raise RuntimeError("RabbitMQ publisher is not connected")
-
-            await self.declare_queue(queue_name)
-
-            message = Message(
-                body=json.dumps(payload).encode(),
-                content_type="application/json",
-                delivery_mode=DeliveryMode.PERSISTENT,
-            )
-
-            await self.channel.default_exchange.publish(
-                message,
-                routing_key=queue_name,
-            )
-
-            logger.info("Published message to %s", queue_name)
-
-    async def declare_queue(self, queue_name: str):
-        if self.channel is None:
-            raise RuntimeError("RabbitMQ publisher is not connected")
-
-        dlx = await self.channel.declare_exchange(
+        dead_letter_exchange = await self.channel.declare_exchange(
             DEAD_LETTER_EXCHANGE,
             ExchangeType.DIRECT,
             durable=True,
         )
+        dead_letter_queue = await self.channel.declare_queue(DEAD_LETTER_QUEUE, durable=True)
+        await dead_letter_queue.bind(dead_letter_exchange, routing_key=queue_name)
 
-        queue = await self.channel.declare_queue(
+        await self.channel.declare_queue(
             queue_name,
             durable=True,
             arguments={
@@ -125,14 +55,33 @@ class RabbitMQPublisher:
             },
         )
 
-        dlq = await self.channel.declare_queue(
-            "resume.dlq",
-            durable=True,
+        self._declared.add(queue_name)
+
+    async def publish_message(self, queue_name: str, payload: dict) -> None:
+        if self.channel is None or self.channel.is_closed:
+            raise RuntimeError("RabbitMQ publisher is not connected")
+
+        await self.declare_queue(queue_name)
+
+        message = Message(
+            body=json.dumps(payload).encode(),
+            content_type="application/json",
+            delivery_mode=DeliveryMode.PERSISTENT,
         )
 
-        await dlq.bind(dlx, routing_key=queue_name)
+        await self.channel.default_exchange.publish(message, routing_key=queue_name)
 
-        return queue
+        logger.info("Published message to %s", queue_name)
+
+    async def publish_resume(self, resume_id: str, object_name: str) -> None:
+        await self.publish_message(
+            self.QUEUE_NAME,
+            {"resume_id": resume_id, "object_name": object_name},
+        )
+
+    async def close(self) -> None:
+        if self.connection and not self.connection.is_closed:
+            await self.connection.close()
 
 
 publisher = RabbitMQPublisher()

@@ -1,200 +1,101 @@
 import streamlit as st
 
+from ui.component.candidate_card import render_candidate_card
 from ui.services.api_client import resume_api
+from ui.styles.helpers import chip, chips
 
-st.set_page_config(
-    page_title="Candidate Search",
-    page_icon="🔎",
-    layout="wide",
-)
 
-st.title("Candidate Search")
-st.caption("Find and evaluate candidates against your hiring requirements.")
+@st.cache_data(ttl=300, show_spinner=False)
+def load_categories() -> list[str]:
+    return resume_api.list_categories()
 
-# Search form
-with st.form("candidate_search_form"):
+
+st.title("Candidate search")
+st.caption("Describe the role you are hiring for. Candidates are retrieved and scored by an LLM.")
+
+try:
+    categories = load_categories()
+except Exception as error:
+    categories = []
+    st.error(f"Unable to load categories: {error}")
+
+with st.form("search_form"):
     query = st.text_area(
         "Job description or search query",
-        placeholder=(
-            "Example: Accountant profile for mid to senior role. "
-            "Looking for candidates with financial reporting, GST, "
-            "taxation, and audit experience..."
-        ),
-        height=180,
+        height=140,
+        placeholder="Senior Python backend engineer with FastAPI and PostgreSQL, 5+ years",
     )
-
-    col1, col2 = st.columns([1, 3])
-
-    with col1:
-        limit = st.number_input(
-            "Maximum results",
-            min_value=1,
-            max_value=100,
-            value=50,
-            step=5,
+    with st.expander("Advanced filters"):
+        skills_text = st.text_input(
+            "Required skills (comma-separated)",
+            help="Leave empty to detect skills from the query.",
         )
-
-    with col2:
-        st.caption(
-            "Enter a complete job description or a natural-language "
-            "description of the candidate you're looking for."
+        selected_categories = st.multiselect("Categories", categories)
+        col1, col2 = st.columns(2)
+        min_years = col1.number_input(
+            "Minimum years of experience",
+            min_value=0.0,
+            max_value=60.0,
+            value=0.0,
+            step=0.5,
+            help="0 = detect from the query.",
         )
+        min_score = col2.slider("Minimum match score", 0, 100, 60)
+        limit = st.number_input("Candidates to evaluate", min_value=1, max_value=25, value=10)
+        include_unknown = st.checkbox("Include candidates with unknown experience", value=True)
+    submitted = st.form_submit_button("Search", type="primary", icon=":material/search:")
 
-    submitted = st.form_submit_button(
-        "Search candidates",
-        type="primary",
-        use_container_width=True,
-    )
-
-# Execute search
 if submitted:
-    if not query.strip():
-        st.warning("Please enter a job description or search query.")
+    if len(query.strip()) < 3:
+        st.warning("Enter at least 3 characters.")
     else:
+        skills = [s.strip() for s in skills_text.split(",") if s.strip()]
         try:
-            with st.spinner("Searching and evaluating candidates..."):
-                result = resume_api.search_candidates(
+            with st.spinner("Searching and evaluating candidates. This can take a few minutes..."):
+                st.session_state["search_result"] = resume_api.search_candidates(
                     query=query.strip(),
                     limit=int(limit),
+                    min_score=int(min_score),
+                    required_skills=skills or None,
+                    categories=selected_categories or None,
+                    min_years=float(min_years) if min_years > 0 else None,
+                    include_unknown_experience=include_unknown,
                 )
-
-            st.session_state["candidate_search_result"] = result
-            st.session_state["candidate_search_query"] = query.strip()
-
         except Exception as error:
-            st.error(f"Candidate search failed: {error}")
+            st.session_state.pop("search_result", None)
+            st.error(f"Search failed: {error}")
 
-# Display results
-result = st.session_state.get("candidate_search_result")
-
+result = st.session_state.get("search_result")
 if result:
-    candidates = result.get("candidates", [])
-    search_query = st.session_state.get("candidate_search_query", "")
+    req = result.get("requirements") or {}
+    items = []
+    if req.get("role"):
+        items.append(chip(f"Role: {req['role']}", "blue"))
+    for cat in req.get("categories") or []:
+        items.append(chip(cat, "blue"))
+    for skill in req.get("required_skills") or []:
+        items.append(chip(skill, "green"))
+    for skill in req.get("preferred_skills") or []:
+        items.append(chip(f"{skill} (preferred)"))
+    if req.get("min_years") is not None:
+        items.append(chip(f"{req['min_years']:g}+ yrs"))
+    if req.get("max_years") is not None:
+        items.append(chip(f"up to {req['max_years']:g} yrs"))
+    if req.get("location"):
+        items.append(chip(req["location"]))
+    if items:
+        st.markdown("**Interpreted as**")
+        st.markdown(chips(items), unsafe_allow_html=True)
 
-    st.divider()
-
-    st.subheader("Search results")
-    st.caption(f"Query: {search_query}")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.metric("Candidates returned", result.get("total", len(candidates)))
-
-    with col2:
-        st.metric("Results displayed", len(candidates))
-
-    if not candidates:
-        st.info(
-            "No matching candidates found. Try broadening your search "
-            "or adjusting the job description."
-        )
-        st.stop()
-
-    # Sort by AI match score, highest first.
-    candidates = sorted(
-        candidates,
-        key=lambda candidate: candidate.get("match_score") or 0,
-        reverse=True,
+    stats = result.get("stats") or {}
+    passed = stats.get("passed_filters")
+    st.caption(
+        f"Passed filters: {passed if passed is not None else 'n/a'} · "
+        f"Retrieved: {stats.get('retrieved', 0)} · Evaluated: {stats.get('evaluated', 0)} · "
+        f"Hidden below score {stats.get('min_score', 0)}: {stats.get('below_threshold', 0)}"
     )
+    if result.get("message"):
+        st.info(result["message"])
 
-    for index, candidate in enumerate(candidates, start=1):
-        filename = candidate.get("filename", "Unknown resume")
-        match_score = candidate.get("match_score")
-        semantic_score = candidate.get("semantic_score")
-
-        with st.container(border=True):
-            header_col, score_col = st.columns([4, 1])
-
-            with header_col:
-                st.markdown(f"### {index}. {filename}")
-                st.caption(f"Resume ID: {candidate.get('resume_id', '—')}")
-
-            with score_col:
-                if match_score is not None:
-                    st.metric("Match score", f"{match_score}/100")
-                else:
-                    st.metric("Match score", "N/A")
-
-            if semantic_score is not None:
-                st.caption(f"Semantic retrieval score: {semantic_score:.4f}")
-
-            summary = candidate.get("summary")
-            if summary:
-                st.write(summary)
-
-            # Relevant experience
-            experience = candidate.get("relevant_experience")
-            if experience:
-                st.markdown("**Relevant experience**")
-                st.write(experience)
-
-            # Skills assessment
-            skills = candidate.get("skills", [])
-
-            if skills:
-                st.markdown("**Skills assessment**")
-
-                for skill in skills:
-                    status = (skill.get("status") or "unknown").lower()
-
-                    if status == "met":
-                        icon = "🟢"
-                    elif status == "partial":
-                        icon = "🟡"
-                    elif status == "missing":
-                        icon = "🔴"
-                    else:
-                        icon = "⚪"
-
-                    st.markdown(
-                        f"{icon} **{skill.get('requirement', 'Requirement')}** — {status.title()}"
-                    )
-
-                    evidence = skill.get("candidate_evidence")
-                    if evidence:
-                        st.caption(evidence)
-
-            # Strengths and gaps
-            strengths_col, gaps_col = st.columns(2)
-
-            with strengths_col:
-                st.markdown("**Strengths**")
-                strengths = candidate.get("strengths", [])
-
-                if strengths:
-                    for strength in strengths:
-                        st.markdown(f"- {strength}")
-                else:
-                    st.caption("No strengths provided.")
-
-            with gaps_col:
-                st.markdown("**Gaps**")
-                gaps = candidate.get("gaps", [])
-
-                if gaps:
-                    for gap in gaps:
-                        st.markdown(f"- {gap}")
-                else:
-                    st.caption("No gaps identified.")
-
-            # Evidence
-            evidence = candidate.get("evidence", [])
-
-            if evidence:
-                with st.expander("Evaluation evidence"):
-                    for item in evidence:
-                        st.markdown(f"- {item}")
-
-            # Matched resume chunks
-            matched_chunks = candidate.get("matched_chunks", [])
-
-            if matched_chunks:
-                with st.expander(f"Matching resume excerpts ({len(matched_chunks)})"):
-                    for chunk in matched_chunks:
-                        st.markdown(
-                            f"**Chunk {chunk.get('chunk_index', 0)}** "
-                            f"· Similarity: {chunk.get('score', 0):.4f}"
-                        )
-                        st.write(chunk.get("text", ""))
-                        st.divider()
+    for rank, candidate in enumerate(result.get("candidates") or [], start=1):
+        render_candidate_card(candidate, rank)
